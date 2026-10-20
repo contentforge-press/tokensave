@@ -1,0 +1,45 @@
+{
+  "name": "tokensave",
+  "version": "1.0.2",
+  "description": "Cut your LLM bill 60-80%. Drop-in proxy with semantic cache, prompt compression and model routing — you only pay on proven savings.",
+  "keywords": [
+    "llm",
+    "openai",
+    "anthropic",
+    "cost",
+    "optimization",
+    "cache",
+    "semantic-cache",
+    "prompt-compression",
+    "model-routing",
+    "gateway",
+    "proxy",
+    "tokens",
+    "ai",
+    "agent",
+    "cheap"
+  ],
+  "homepage": "https://tokensaver.contentforge-press.workers.dev",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/contentforge-press/tokensaver.git"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "TokenSaver"
+  },
+  "main": "index.js",
+  "types": "index.d.ts",
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node test.js"
+  }
+}
