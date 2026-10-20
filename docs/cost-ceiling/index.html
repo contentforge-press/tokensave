@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>How to set a hard cost ceiling on an LLM agent — tokensave</title>
+<meta name="description" content="A retry loop can spend $78,000 before anyone notices.">
+<link rel="canonical" href="https://contentforge-press.github.io/tokensave/cost-ceiling">
+<meta property="og:type" content="article">
+<meta property="og:title" content="How to set a hard cost ceiling on an LLM agent">
+<meta property="og:description" content="A retry loop can spend $78,000 before anyone notices.">
+<meta property="og:url" content="https://contentforge-press.github.io/tokensave/cost-ceiling">
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "TechArticle", "headline": "How to set a hard cost ceiling on an LLM agent", "description": "A retry loop can spend $78,000 before anyone notices.", "url": "https://contentforge-press.github.io/tokensave/cost-ceiling", "author": {"@type": "Organization", "name": "tokensave"}}
+</script>
+<style>
+:root{--bg:#000;--surface:#0a0a0a;--line:#1c1c1c;--ink:#fafafa;--mut:#6b7280;--ok:#4ade80;--acc:#60a5fa}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font:15px/1.7 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--bg);color:var(--ink)}
+.wrap{max-width:760px;margin:0 auto;padding:56px 24px 100px}
+.pill{display:inline-block;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--acc);border:1px solid #14243b;background:#06111c;padding:4px 10px;border-radius:4px;margin-bottom:20px}
+h1{font-size:clamp(26px,4.5vw,40px);line-height:1.12;letter-spacing:-.03em;margin-bottom:20px}
+h2{font-size:20px;margin:40px 0 14px;letter-spacing:-.02em}
+.lede{font-size:16px;color:#9ca3af;margin-bottom:32px}
+p{color:#9ca3af;margin-bottom:16px}
+b{color:var(--ink)}
+pre{background:#0a0a0a;border:1px solid var(--line);border-radius:9px;padding:18px;overflow-x:auto;font-size:12.5px;line-height:1.8;margin:20px 0;color:#d4d4d4}
+code{color:#c084fc}
+.cmp{width:100%;border-collapse:collapse;margin:22px 0;font-size:13.5px}
+.cmp th{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--mut)}
+.cmp td{padding:12px;border-bottom:1px solid #141414;color:#9ca3af;vertical-align:top}
+.yes{color:var(--ok)}
+a{color:var(--acc);text-decoration:none}
+a:hover{text-decoration:underline}
+nav{border-bottom:1px solid var(--line);padding:14px 24px}
+nav a{color:var(--mut);font-size:13px}
+</style>
+</head>
+<body>
+<nav><a href="./">← tokensave</a></nav>
+<div class="wrap">
+<p class="pill">guide · 4 min</p>
+<h1>How to set a hard cost ceiling on an LLM agent</h1>
+<p class="lede">A retry loop does not announce itself. It just keeps calling. The invoice arrives at the end of the month, or the card gets declined at 3am. Here is the mechanism that stops it.</p>
+<h2>The three limits that matter</h2>
+<table class="cmp">
+<tr><th>Limit</th><th>What it stops</th><th>Why one limit is not enough</th></tr>
+<tr><td><code>maxCostPerRequest</code></td><td>One oversized context or poisoned prompt</td><td>A single request can be huge without being a loop</td></tr>
+<tr><td><code>maxCostPerHour</code></td><td>Retry storms, non-converging loops</td><td>Daily limits let a loop burn everything in 20 minutes</td></tr>
+<tr><td><code>maxCostPerDay</code></td><td>The number you actually signed off on</td><td>A monthly limit is too coarse to react</td></tr>
+</table>
+<h2>Why the check must happen before the call</h2>
+<p>Post-hoc monitoring tells you what happened. It does not stop it. A budget guard has to estimate the cost of the <em>next</em> request and refuse to send it — otherwise the provider has already billed you by the time you find out.</p>
+<pre><code>if (spentHour + estimatedCost &gt; maxCostPerHour) {
+  throw new BudgetExceededError(...);
+}
+await fetch(provider, payload);   // never reached</code></pre>
+<h2>Estimating cost before you know the response</h2>
+<p>You cannot know output tokens in advance. Input tokens are exact (count them); output is usually 0.3–1.5× input for chat workloads. Overestimating fails early (safe). Underestimating fails late (expensive).</p>
+<h2>A complete implementation</h2>
+<p><a href="./">tokensave</a> implements exactly this — three limits, checked pre-call, plus a <code>savedByCeiling</code> counter showing what it prevented.</p>
+<pre><code>const client = new TokenSaver({
+  apiKey: process.env.OPENAI_API_KEY,
+  maxCostPerRequest: 0.50,
+  maxCostPerHour: 5,
+  maxCostPerDay: 25,
+});</code></pre>
+<p>Ceilings are MIT and free at every tier — safety should not be an upsell.</p>
+<p style="margin-top:36px"><a href="./">← back</a></p>
+</div>
+</body>
+</html>
