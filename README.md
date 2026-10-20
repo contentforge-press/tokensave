@@ -1,29 +1,49 @@
 # tokensave
 
-**Cut your LLM bill 60–80%.** A drop-in proxy that removes the part of every request that was never doing any work.
+**Cut your LLM bill 60–80%. Stop runaway spend.**
+
+Your agent has no cost ceiling. `$78,000` is one retry loop away.
+Ceilings block the request before the provider is called. Savings shave the rest.
 
 ```bash
-npm install tokensave     # Node 18+
-```
-```bash
-pip install tokensave     # Python 3.9+
+npm install tokensave                    # Node 18+
+pip install git+https://github.com/contentforge-press/tokensave.git#subdirectory=python
 ```
 
 ---
 
-## The problem nobody was measuring
+## The 3am incident, rewritten
 
-Three things leak money on nearly every LLM call:
+Same agent, same bug, same retry loop. Only the last line changes.
 
-| Leak | What it looks like | Recovery |
-|---|---|---|
-| **Repeated questions** | The same question reworded, billed again in full | up to −40% |
-| **Filler tokens** | "please", "I would like you to", duplicated sentences | −10 to −25% |
-| **Wrong-sized model** | `gpt-4` answering "what is Python" | −30 to −60% |
+<table>
+<tr><td valign="top">
 
-None of this was hidden. It was **unmeasured** — because measuring it meant assembling three separate libraries and wiring them into a proxy that could actually run in production.
+**without tokensave**
 
-That assembly is the product. Not new technology — **the time between "this is possible" and "this is running for me."**
+```
+03:12:04 POST chat/completions 400
+03:12:04 retrying (1/∞)
+04:47:33 retrying (1,204/∞)
+06:58:10 invoice: $78,412.08
+09:00:00 someone opens the dashboard
+```
+
+</td><td valign="top">
+
+**with tokensave**
+
+```
+03:12:04 POST chat/completions 400
+03:12:04 retrying (1/∞)
+03:13:41 BudgetExceededError: hourly $5
+03:13:41 request blocked — no provider call
+06:58:10 invoice: $4.87
+09:00:00 someone sleeps in
+```
+
+</td></tr>
+</table>
 
 ---
 
@@ -34,7 +54,12 @@ That assembly is the product. Not new technology — **the time between "this is
 ```js
 import TokenSaver from "tokensave";
 
-const client = new TokenSaver({ apiKey: process.env.OPENAI_API_KEY });
+const client = new TokenSaver({
+  apiKey: process.env.OPENAI_API_KEY,
+  maxCostPerRequest: 0.50,
+  maxCostPerHour: 5,
+  maxCostPerDay: 25,
+});
 
 const res = await client.create({
   model: "gpt-4",
@@ -42,18 +67,13 @@ const res = await client.create({
 });
 
 console.log(res.billing);
-```
-
-```js
-{
-  model: "gpt-4o-mini",     // routed down automatically
-  costUsd: 0.0000212,       // what you paid
-  baselineUsd: 0.00243,     // what you would have paid
-  savedUsd: 0.0024088,      // what you kept
-  cached: false,
-  tokensSaved: 4,
-  route: "routed down: 3 tokens, 1 simple patterns",
-}
+// {
+//   model: "gpt-4o-mini",   // routed down automatically
+//   costUsd: 0.0000212,
+//   baselineUsd: 0.00243,
+//   savedUsd: 0.0024088,
+//   route: "routed down: 3 tokens, 1 simple patterns"
+// }
 ```
 
 ### Python
@@ -61,37 +81,53 @@ console.log(res.billing);
 ```python
 from tokensave import TokenSaver
 
-client = TokenSaver(api_key=os.environ["OPENAI_API_KEY"])
-
-res = client.create(
-    model="gpt-4",
-    messages=[{"role": "user", "content": "What is Python?"}],
+client = TokenSaver(
+    api_key=os.environ["OPENAI_API_KEY"],
+    max_cost_per_day=25,
 )
 
-print(res.billing)
+res = client.create(model="gpt-4", messages=[...])
+print(res.billing.to_dict())
 ```
 
 ---
 
-## Two modes
+## Three ceilings
 
-### Hosted — zero setup
+| Limit | Stops | Typical |
+|---|---|---|
+| `maxCostPerRequest` | One poisoned prompt / oversized context | $0.50 |
+| `maxCostPerHour` | Retry storms, infinite loops, runaway agents | $5 |
+| `maxCostPerDay` | The number you actually signed off on | $25 |
 
 ```js
-const client = new TokenSaver({ apiKey: "..." });
+client.budgetStatus
+// { spentDay: 14.02, dayRemaining: 10.98, blocked: 3, savedByCeiling: 78.44 }
 ```
 
-Requests go through our proxy. We cache, compress, route, and attach receipts.
+`savedByCeiling` is money the ceilings stopped you from spending.
+Tests assert the request never reaches the provider (`calls === 0`).
 
-You pay only on **proven** savings: free under $200/month saved, 20% above that capped at $99/month. The cap means the better it works, the better your deal gets.
+---
 
-### Local — nothing leaves your machine
+## Three optimizations
+
+| Leak | What it is | Recovery |
+|---|---|---|
+| **Repeated questions** | Same question, reworded | up to −40% |
+| **Filler tokens** | "please", duplicate sentences | −10 to −25% |
+| **Wrong-sized model** | `gpt-4` answering "what is Python" | −30 to −60% |
+
+Every response carries a receipt: `savedUsd`, `baselineUsd`, `costUsd`, `route`.
+**You verify the claim yourself. No dashboard, no trust required.**
+
+### Local mode — nothing leaves your machine
 
 ```js
 const client = new TokenSaver({ apiKey: "...", local: true });
 ```
 
-Everything runs in-process. No request goes anywhere except your provider. Same engine. Free forever. No metering.
+Runs entirely in-process. Same engine. Free forever. No metering.
 
 ```js
 client.savings
@@ -100,83 +136,58 @@ client.savings
 
 ---
 
-## What each optimization actually does
+## Honest limits
 
-### 1. Semantic cache
-
-Questions are normalized before hashing: timestamps, UUIDs, emails and long numbers are replaced with placeholders, case is folded, whitespace collapsed. Two requests that differ only in those details hit the same cache entry.
-
-**Real limitation:** this is normalization, not embeddings. It catches reworded repeats with the same vocabulary, not true paraphrases. It is fast and free; it is not omniscient.
-
-### 2. Prompt compression
-
-Strips filler phrases (`please`, `kindly`, `I would like you to`, `in order to` → `to`) and drops duplicated sentences. Meaning survives; tokens don't.
-
-**Real limitation:** regex-based. It does not summarize. Aggressive prompts may lose nuance — check `tokensSaved` before trusting it blindly.
-
-### 3. Model routing
-
-Scores request complexity from surface features (length, code blocks, reasoning verbs like *analyze*/*prove*/*compare*). Simple requests get mapped to a cheap model from the same family.
-
-```
-gpt-4              → gpt-4o-mini
-gpt-4o             → gpt-4o-mini
-claude-3-opus      → claude-3-haiku
-claude-3.5-sonnet  → claude-3-haiku
-```
-
-**Real limitation:** it's a heuristic. A short-but-hard question can be routed down. Disable with `{ route: false }` when precision matters more than cost.
-
----
-
-## Verifying the savings yourself
-
-Every response carries billing data. No dashboard, no trust required:
-
-```js
-res.billing.savedUsd      // money you didn't spend
-res.billing.baselineUsd   // money you would have spent
-res.billing.costUsd       // money you did spend
-res.billing.route         // why this model was chosen
-```
-
-Cumulative, across the client's lifetime:
-
-```js
-client.savings.savedUsd
-client.savings.savedPct
-client.savings.cacheHits
-```
+| Claim | Reality |
+|---|---|
+| Catch reworded questions | **Yes**, if vocabulary matches. Normalization, not embeddings. True paraphrases slip through. |
+| Route perfectly | **No** — heuristic. A short-but-hard question can be routed down. `route: false` disables. |
+| Compress safely always | **Mostly** — regex-based, no summarization. Check `tokensSaved`. |
+| Fix a provider double-charge | **No** — billing dispute, different problem. |
+| Replace observability | **No** — we measure cost, not quality. Use Langfuse alongside. |
 
 ---
 
 ## Pricing
+
+**Ceilings are always free** — they're safety, not a feature.
+
+Savings: free under $200/month saved, 20% above capped at $99/month.
 
 | You save | You pay | You keep |
 |---|---|---|
 | $150 | $0 | $150 |
 | $500 | $99 (capped) | $401 |
 | $2,000 | $99 (capped) | $1,901 |
-| $10,000 | $99 (capped) | $9,901 |
-
-The cap is deliberate. If it works well for you, it should cost you less, not more.
 
 ---
 
 ## Tests
 
 ```bash
-cd products/tokensaver-npm && node test.js    # 45 assertions
+node products/tokensaver-npm/test.js      # 66 assertions
+python python/tokensave.py --selftest     # 48 assertions
 ```
 
-Covers token estimation, cost math, normalization, compression, routing (including "don't route complex work down"), cache LRU, and a full local-mode round trip with a fake fetch — including asserting that a cache hit does **not** call the provider again.
+Both cover: cost math, normalization, compression, routing (including
+"don't route complex work down"), cache LRU, budget ceilings (per-request /
+hourly / daily), and a full round trip proving a cache hit does not re-call
+the provider and a blocked request never reaches it.
 
 ---
 
-## License
+## Why this exists
+
+Every piece already existed as an open-source library. GPTCache for caching.
+LLMLingua for compression. LiteLLM for routing. Cost-ceiling patterns in a
+dozen blog posts.
+
+The waste and the risk persisted anyway — because assembling them into
+something you'd run in production took longer than most teams had.
+
+That gap is the product. Not new technology. **The distance between "this is
+possible" and "this is running for me."** We closed it to one import.
+
+---
 
 MIT
-
----
-
-Built by [@contentforge-press](https://github.com/contentforge-press)
