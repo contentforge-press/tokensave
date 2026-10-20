@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>tokensave — your agent has no cost ceiling</title>
+<meta name="description" content="Hard cost ceilings for LLM clients. maxCostPerDay blocks the request before the provider is called. Plus semantic cache, compression and routing. Open source, MIT.">
+<style>
+:root{
+  --bg:#000;--surface:#0a0a0a;--line:#1c1c1c;--ink:#fafafa;--mut:#6b7280;
+  --ok:#4ade80;--red:#f87171;--amb:#fbbf24;--acc:#60a5fa;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  font:15px/1.65 ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1000px;margin:0 auto;padding:0 24px}
+a{color:var(--acc);text-decoration:none}
+a:hover{text-decoration:underline}
+
+nav{position:sticky;top:0;z-index:50;background:rgba(0,0,0,.9);backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
+nav .inner{max-width:1000px;margin:0 auto;padding:13px 24px;display:flex;align-items:center;justify-content:space-between}
+nav .logo{font-weight:700;font-size:14px;display:flex;align-items:center;gap:8px}
+nav .dot{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 10px var(--ok)}
+nav .links{display:flex;gap:20px;font-size:12.5px}
+nav .links a{color:var(--mut)}
+nav .links a:hover{color:var(--ink);text-decoration:none}
+@media(max-width:680px){nav .links{display:none}}
+
+/* hero */
+.hero{padding:96px 0 72px;border-bottom:1px solid var(--line)}
+.pill{display:inline-block;font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+      color:var(--red);border:1px solid #3b1414;background:#170707;padding:4px 10px;border-radius:4px;margin-bottom:22px}
+h1{font-size:clamp(30px,5.5vw,54px);line-height:1.06;letter-spacing:-.035em;font-weight:700;margin-bottom:24px}
+h1 code{background:var(--surface);border:1px solid var(--line);padding:1px 8px;border-radius:5px;
+        font-size:.82em;color:var(--red)}
+.lede{font-size:16.5px;line-height:1.7;color:#9ca3af;max-width:620px;margin-bottom:34px}
+.lede b{color:var(--ink);font-weight:600}
+
+/* terminal incident */
+.incident{background:#0a0000;border:1px solid #2a1010;border-radius:10px;overflow:hidden;max-width:720px;margin-bottom:36px}
+.incident .bar{padding:9px 14px;border-bottom:1px solid #2a1010;font-size:11.5px;color:var(--red);
+               display:flex;align-items:center;gap:8px}
+.incident .bar .d{width:8px;height:8px;border-radius:50%;background:var(--red);animation:pulse 1.6s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.incident pre{padding:18px;font-size:12.5px;line-height:1.85;overflow-x:auto;color:#d4d4d4}
+.incident .t{color:#4b5563}
+.incident .w{color:var(--amb)}
+.incident .e{color:var(--red)}
+.incident .g{color:var(--ok)}
+
+/* install */
+.install{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden;max-width:720px}
+.install .bar{display:flex;align-items:center;gap:8px;padding:9px 14px;border-bottom:1px solid var(--line);font-size:12px;color:var(--mut)}
+.install .bar .d{width:8px;height:8px;border-radius:50%;background:#2a2a2a}
+.install pre{padding:18px;font-size:13px;line-height:1.8;overflow-x:auto}
+.k{color:#c084fc}.s{color:var(--ok)}.c{color:#4b5563}.n{color:var(--amb)}
+
+/* sections */
+section{padding:76px 0;border-bottom:1px solid var(--line)}
+.slabel{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--mut);margin-bottom:32px}
+h2{font-size:clamp(22px,3.5vw,32px);letter-spacing:-.025em;margin-bottom:14px;font-weight:700}
+
+/* comparison table */
+.cmp{width:100%;border-collapse:collapse;margin-top:32px;font-size:14px}
+.cmp th{text-align:left;padding:12px 14px;border-bottom:1px solid var(--line);font-size:11px;
+        letter-spacing:.08em;text-transform:uppercase;color:var(--mut);font-weight:600}
+.cmp td{padding:14px;border-bottom:1px solid #141414;vertical-align:top}
+.cmp td:first-child{color:var(--mut);white-space:nowrap}
+.yes{color:var(--ok)}.no{color:var(--red)}
+
+/* cards */
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:1px;
+      background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-top:36px}
+.card{background:var(--bg);padding:26px}
+.card h3{font-size:15px;margin-bottom:8px;font-weight:600}
+.card p{font-size:13px;color:var(--mut);line-height:1.65}
+.card .save{font-size:12px;color:var(--ok);margin-top:12px;font-weight:600}
+
+/* code block inline */
+.code{background:#0a0a0a;border:1px solid var(--line);border-radius:9px;padding:18px;
+      overflow-x:auto;font-size:12.5px;line-height:1.8;margin-top:20px}
+
+/* status demo */
+.statusbox{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-top:24px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:16px}
+.stat .n{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}
+.stat .l{font-size:10.5px;color:var(--mut);text-transform:uppercase;letter-spacing:.07em;margin-top:3px}
+
+/* pricing */
+.prices{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:36px}
+@media(max-width:800px){.prices{grid-template-columns:1fr}}
+.price{border:1px solid var(--line);border-radius:12px;padding:24px;background:var(--surface)}
+.price.hot{border-color:#14532d;background:#03100a}
+.price .nm{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);margin-bottom:12px}
+.price .amt{font-size:30px;font-weight:700;letter-spacing:-.03em;margin-bottom:8px}
+.price .amt small{font-size:12px;color:var(--mut);font-weight:400}
+.price p{font-size:13px;color:var(--mut);line-height:1.65;margin-top:10px}
+
+footer{padding:44px 0;font-size:12px;color:#374151;display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+footer a{color:var(--mut)}
+</style>
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="tokensave — your agent has no cost ceiling">
+<meta property="og:description" content="Hard cost ceilings for LLM clients. Blocks the request before the provider is called. Open source, MIT.">
+<meta property="og:url" content="https://contentforge-press.github.io/tokensave">
+<meta property="og:site_name" content="tokensave">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="tokensave — your agent has no cost ceiling">
+<meta name="twitter:description" content="maxCostPerDay blocks the request before the provider is called. Plus 60-80% savings.">
+<meta name="keywords" content="llm cost, token cost, cost ceiling, budget guard, semantic cache, prompt compression, model routing, openai, anthropic, agent cost control">
+<meta name="author" content="tokensave">
+<link rel="canonical" href="https://contentforge-press.github.io/tokensave/">
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "tokensave", "applicationCategory": "DeveloperApplication", "operatingSystem": "Node.js, Python", "description": "Hard cost ceilings for LLM clients. maxCostPerDay blocks the request before the provider is called. Plus semantic cache, prompt compression and model routing to cut bills 60-80%.", "offers": [{"@type": "Offer", "price": "0", "priceCurrency": "USD", "name": "Free", "description": "Under $200 saved per month"}, {"@type": "Offer", "price": "99", "priceCurrency": "USD", "name": "Pro", "description": "20% of savings, capped at $99/month"}], "softwareVersion": "1.1.1", "license": "https://opensource.org/licenses/MIT", "url": "https://contentforge-press.github.io/tokensave", "downloadUrl": "https://www.npmjs.com/package/tokensave", "codeRepository": "https://github.com/contentforge-press/tokensave", "programmingLanguage": ["JavaScript", "TypeScript", "Python"], "keywords": "llm cost, token cost, cost ceiling, budget guard, semantic cache, prompt compression, model routing, openai, anthropic, agent cost control, runaway agent"}
+</script>
+</head>
+<body>
+
+<nav><div class="inner">
+<div class="logo"><span class="dot"></span>tokensave</div>
+<div class="links">
+<a href="#incident">the incident</a>
+<a href="#ceiling">ceiling</a>
+<a href="#save">savings</a>
+<a href="#install">install</a>
+</div>
+</div></nav>
+
+<div class="wrap">
+
+<section class="hero">
+<div class="pill">open source · MIT · no lock-in</div>
+<h1>Your agent has no<br>cost ceiling. <code>$78,000</code><br>is one bug away.</h1>
+<p class="lede">
+An agent retrying a 400 error. A loop that never converges. A model swap that triples output tokens.
+By the time anyone notices, the bill is already written. <b>tokensave blocks the request before the provider is called</b> — and shaves 60–80% off everything that gets through.
+</p>
+
+<div class="install" id="install">
+<div class="bar"><span class="d"></span><span class="d"></span><span class="d"></span>npm install tokensave</div>
+<pre><span class="k">import</span> TokenSaver <span class="k">from</span> <span class="s">"tokensave"</span>;
+
+<span class="k">const</span> client = <span class="k">new</span> <span class="n">TokenSaver</span>({
+  apiKey: process.env.OPENAI_API_KEY,
+  maxCostPerRequest: <span class="n">0.50</span>,   <span class="c">// one call, hard limit</span>
+  maxCostPerHour:    <span class="n">5</span>,      <span class="c">// loop guard</span>
+  maxCostPerDay:     <span class="n">25</span>,     <span class="c">// the number you can sleep on</span>
+});
+
+<span class="c">// everything else stays the same</span>
+<span class="k">const</span> res = <span class="k">await</span> client.create({ model: <span class="s">"gpt-4"</span>, messages });</pre>
+</div>
+</section>
+
+<section id="incident">
+<div class="slabel">What it actually looks like</div>
+<h2>The 3am incident, rewritten</h2>
+<p style="color:var(--mut);font-size:14.5px;max-width:620px">
+Same agent, same bug, same retry loop. Only the last line changes.
+</p>
+
+<div class="incident">
+<div class="bar"><span class="d"></span>agent-loop.log — without tokensave</div>
+<pre><span class="t">03:12:04</span> POST /v1/chat/completions  gpt-4   <span class="w">400 bad request</span>
+<span class="t">03:12:04</span> retrying (1/∞)
+<span class="t">03:12:07</span> retrying (2/∞)
+<span class="t">03:12:19</span> retrying (7/∞)   <span class="w">still 400</span>
+<span class="t">04:47:33</span> retrying (1,204/∞)
+<span class="t">06:58:10</span> <span class="e">invoice: $78,412.08</span>
+<span class="t">09:00:00</span> <span class="e">someone opens the dashboard</span></pre>
+</div>
+
+<div class="incident" style="border-color:#14532d;background:#020a05;margin-top:16px">
+<div class="bar" style="border-color:#14532d;color:var(--ok)"><span class="d" style="background:var(--ok);animation:none"></span>agent-loop.log — with tokensave</div>
+<pre><span class="t">03:12:04</span> POST /v1/chat/completions  gpt-4   <span class="w">400 bad request</span>
+<span class="t">03:12:04</span> retrying (1/∞)
+<span class="t">03:12:07</span> retrying (2/∞)
+<span class="t">03:12:19</span> retrying (7/∞)   <span class="w">still 400</span>
+<span class="t">03:13:41</span> <span class="e">BudgetExceededError: hourly limit $5.00 reached</span>
+<span class="t">03:13:41</span> <span class="g">request blocked — provider never called</span>
+<span class="t">06:58:10</span> <span class="g">invoice: $4.87</span>
+<span class="t">09:00:00</span> <span class="g">someone sleeps in</span></pre>
+</div>
+</section>
+
+<section id="ceiling">
+<div class="slabel">What ceilings give you</div>
+<h2>Three limits, checked before the call</h2>
+
+<table class="cmp">
+<tr><th>Limit</th><th>Stops</th><th>Typical value</th></tr>
+<tr><td>maxCostPerRequest</td><td>One poisoned prompt / one oversized context</td><td class="yes">$0.50</td></tr>
+<tr><td>maxCostPerHour</td><td>Retry storms, infinite loops, runaway agents</td><td class="yes">$5</td></tr>
+<tr><td>maxCostPerDay</td><td>The number you actually signed off on</td><td class="yes">$25</td></tr>
+</table>
+
+<div class="code">client.budgetStatus
+<span class="c">// {</span>
+<span class="c">//   spentDay: 14.02,  spentHour: 2.11,</span>
+<span class="c">//   maxPerDay: 25,    dayRemaining: 10.98,</span>
+<span class="c">//   blocked: 3,       savedByCeiling: 78.44</span>
+<span class="c">// }</span></div>
+
+<p style="color:var(--mut);font-size:13.5px;margin-top:18px;max-width:620px">
+<samp>savedByCeiling</samp> is money the ceilings stopped you from spending.
+For a loop that would have retried until the budget died, that number is the whole point.
+The test suite asserts the request never reaches the provider — <code>calls === 0</code>.
+</p>
+</section>
+
+<section id="save">
+<div class="slabel">What ceilings don't cover</div>
+<h2>And the 60–80% that just leaks</h2>
+<p style="color:var(--mut);font-size:14.5px;max-width:620px">
+Ceilings stop disasters. These three stop the slow bleed — the money going out on every single call, all day, forever.
+</p>
+
+<div class="grid">
+<div class="card">
+<h3>Semantic cache</h3>
+<p>Same question, reworded, answered from cache. Timestamps, UUIDs, emails and long numbers are normalized out before hashing — so "fetch data at 2026-01-15" and "fetch data at 2026-09-20" hit the same entry.</p>
+<div class="save">up to −40%</div>
+</div>
+<div class="card">
+<h3>Prompt compression</h3>
+<p>Strips "please", "kindly", "I would like you to", "in order to". Drops duplicated sentences. Meaning survives; tokens don't.</p>
+<div class="save">−10 to −25%</div>
+</div>
+<div class="card">
+<h3>Model routing</h3>
+<p>"What is Python?" never needed $30/M. Complexity is scored per request; simple ones go to a cheap model in the same family, complex work stays put.</p>
+<div class="save">−30 to −60%</div>
+</div>
+</div>
+
+<p style="color:var(--mut);font-size:13.5px;margin-top:26px;max-width:640px">
+Every response carries its own receipt — <code>savedUsd</code>, <code>baselineUsd</code>, <code>costUsd</code>, and the routing reason. <b style="color:var(--ink)">You verify the claim yourself. No dashboard, no trust required.</b>
+</p>
+</section>
+
+<section>
+<div class="slabel">Honest limits</div>
+<h2>What this does not do</h2>
+<table class="cmp">
+<tr><th>Claim</th><th>Reality</th></tr>
+<tr><td>Catch reworded questions</td><td><span class="yes">Yes</span> — if the vocabulary matches. Normalization, not embeddings. True paraphrases slip through.</td></tr>
+<tr><td>Route perfectly</td><td><span class="no">No</span> — it's a heuristic on surface features. A short-but-hard question can be routed down. <code>route: false</code> turns it off.</td></tr>
+<tr><td>Compress safely always</td><td><span class="amb" style="color:var(--amb)">Mostly</span> — regex-based, no summarization. Aggressive prompts may lose nuance. Check <code>tokensSaved</code>.</td></tr>
+<tr><td>Fix a provider double-charge</td><td><span class="no">No</span> — that's a billing dispute. Different problem.</td></tr>
+<tr><td>Replace your observability</td><td><span class="no">No</span> — we measure cost, not quality. Use Langfuse alongside.</td></tr>
+</table>
+</section>
+
+<section>
+<div class="slabel">Pricing</div>
+<h2>You pay on proven savings</h2>
+<div class="prices">
+<div class="price">
+<div class="nm">Free</div>
+<div class="amt">$0</div>
+<p>Under $200 saved per month. No card. Unlimited duration. Ceilings are always free — they're safety, not a feature.</p>
+</div>
+<div class="price hot">
+<div class="nm">Pro</div>
+<div class="amt">20% <small>/ savings, capped $99</small></div>
+<p>Cap kicks in at $495 saved. The better this works, the better your deal gets. That's intentional.</p>
+</div>
+<div class="price">
+<div class="nm">Self-host</div>
+<div class="amt">$0 <small>forever</small></div>
+<p>MIT licensed. Run the whole thing behind your own domain. Same engine, no metering.</p>
+</div>
+</div>
+</section>
+
+<section style="border-bottom:none">
+<div class="slabel">Why this exists</div>
+<div style="border-left:2px solid var(--ok);padding-left:26px;max-width:660px">
+<p style="font-size:15.5px;line-height:1.75;color:#9ca3af">
+Every piece of this already existed as an open-source library. GPTCache for caching. LLMLingua for compression. LiteLLM for routing. Cost-ceiling patterns in a dozen blog posts.
+</p>
+<p style="font-size:15.5px;line-height:1.75;color:#9ca3af;margin-top:16px">
+<b style="color:var(--ink)">The waste and the risk persisted anyway</b> — because assembling them into something you'd actually run in production took longer than most teams had.
+</p>
+<p style="font-size:15.5px;line-height:1.75;color:#9ca3af;margin-top:16px">
+That gap is the product. Not new technology. <b style="color:var(--ink)">The distance between "this is possible" and "this is running for me."</b> We closed it to one import.
+</p>
+</div>
+</section>
+
+<footer>
+<div>tokensave — MIT · open core · measured savings</div>
+<div>
+<a href="https://www.npmjs.com/package/tokensave">npm</a> ·
+<a href="https://github.com/contentforge-press/tokensave">github</a> ·
+<a href="https://tokensaver.contentforge-press.workers.dev/health">health</a>
+</div>
+</footer>
+
+</div>
+</body>
+</html>
