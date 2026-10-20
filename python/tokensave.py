@@ -24,8 +24,10 @@ from datetime import datetime, timezone
 from typing import Any
 
 __version__ = "1.0.0"
-__all__ = ["TokenSaver", "Billing", "Savings", "PRICING", "compress_prompt",
-           "route_model", "estimate_tokens", "calc_cost", "normalize_for_cache"]
+__all__ = ["TokenSaver", "Billing", "Savings", "BudgetGuard",
+           "BudgetExceededError", "BudgetStatus", "PRICING",
+           "compress_prompt", "route_model", "estimate_tokens",
+           "calc_cost", "normalize_for_cache", "Response"]
 
 HOSTED_URL = "https://tokensaver.contentforge-press.workers.dev"
 
@@ -258,6 +260,140 @@ class Savings:
         }
 
 
+# ============================================================
+# 成本熔断 —— 防止 agent 一夜烧光预算
+# ============================================================
+class BudgetExceededError(Exception):
+    """预算超限。请求在调用 provider 之前就被拦截。"""
+
+    def __init__(self, limit_type: str, limit: float,
+                 spent: float, attempted: float):
+        self.limit_type = limit_type
+        self.limit = limit
+        self.spent = spent
+        self.attempted = attempted
+        super().__init__(
+            f"TokenSaver budget exceeded: {limit_type} limit ${limit:.2f}, "
+            f"would reach ${spent + attempted:.4f}. "
+            f"Request blocked to prevent runaway spend."
+        )
+
+
+@dataclass
+class BudgetStatus:
+    spent_day: float = 0.0
+    spent_hour: float = 0.0
+    max_per_day: float | None = None
+    max_per_hour: float | None = None
+    max_per_request: float | None = None
+    day_remaining: float | None = None
+    hour_remaining: float | None = None
+    blocked: int = 0
+    saved_by_ceiling: float = 0.0
+
+    def to_dict(self) -> dict:
+        return {
+            "spentDay": round(self.spent_day, 6),
+            "spentHour": round(self.spent_hour, 6),
+            "maxPerDay": self.max_per_day,
+            "maxPerHour": self.max_per_hour,
+            "maxPerRequest": self.max_per_request,
+            "dayRemaining": (None if self.day_remaining is None
+                             else round(self.day_remaining, 6)),
+            "hourRemaining": (None if self.hour_remaining is None
+                              else round(self.hour_remaining, 6)),
+            "blocked": self.blocked,
+            "savedByCeiling": round(self.saved_by_ceiling, 6),
+        }
+
+
+class BudgetGuard:
+    """硬性成本上限。超了就在调用 provider 前拦截。"""
+
+    def __init__(self, max_cost_per_request: float | None = None,
+                 max_cost_per_day: float | None = None,
+                 max_cost_per_hour: float | None = None):
+        self.max_per_request = (max_cost_per_request
+                                if max_cost_per_request is not None else float("inf"))
+        self.max_per_day = (max_cost_per_day
+                            if max_cost_per_day is not None else float("inf"))
+        self.max_per_hour = (max_cost_per_hour
+                             if max_cost_per_hour is not None else float("inf"))
+
+        self.spent_day = 0.0
+        self.spent_hour = 0.0
+        self._day_key = self._now_key("day")
+        self._hour_key = self._now_key("hour")
+        self.blocked = 0
+        self.saved_enforced = 0.0
+
+    @staticmethod
+    def _now_key(kind: str) -> str:
+        now = datetime.now(timezone.utc)
+        if kind == "day":
+            return now.strftime("%Y-%m-%d")
+        return now.strftime("%Y-%m-%dT%H")
+
+    def _rollover(self):
+        d = self._now_key("day")
+        if d != self._day_key:
+            self._day_key = d
+            self.spent_day = 0.0
+        h = self._now_key("hour")
+        if h != self._hour_key:
+            self._hour_key = h
+            self.spent_hour = 0.0
+
+    def check(self, estimated_cost: float) -> bool:
+        """请求前检查。超限抛 BudgetExceededError。"""
+        self._rollover()
+
+        if estimated_cost > self.max_per_request:
+            self.blocked += 1
+            self.saved_enforced += estimated_cost
+            raise BudgetExceededError(
+                "per-request", self.max_per_request, 0.0, estimated_cost)
+
+        if self.spent_hour + estimated_cost > self.max_per_hour:
+            self.blocked += 1
+            self.saved_enforced += estimated_cost
+            raise BudgetExceededError(
+                "hourly", self.max_per_hour, self.spent_hour, estimated_cost)
+
+        if self.spent_day + estimated_cost > self.max_per_day:
+            self.blocked += 1
+            self.saved_enforced += estimated_cost
+            raise BudgetExceededError(
+                "daily", self.max_per_day, self.spent_day, estimated_cost)
+
+        return True
+
+    def record(self, actual_cost: float):
+        """请求成功后的记账。"""
+        self._rollover()
+        self.spent_day += actual_cost
+        self.spent_hour += actual_cost
+
+    def status(self) -> BudgetStatus:
+        self._rollover()
+        return BudgetStatus(
+            spent_day=self.spent_day,
+            spent_hour=self.spent_hour,
+            max_per_day=(None if self.max_per_day == float("inf")
+                         else self.max_per_day),
+            max_per_hour=(None if self.max_per_hour == float("inf")
+                          else self.max_per_hour),
+            max_per_request=(None if self.max_per_request == float("inf")
+                             else self.max_per_request),
+            day_remaining=(None if self.max_per_day == float("inf")
+                           else max(0.0, self.max_per_day - self.spent_day)),
+            hour_remaining=(None if self.max_per_hour == float("inf")
+                            else max(0.0, self.max_per_hour - self.spent_hour)),
+            blocked=self.blocked,
+            saved_by_ceiling=self.saved_enforced,
+        )
+
+
 @dataclass
 class Response:
     """包装 provider 响应 + billing"""
@@ -296,7 +432,11 @@ class TokenSaver:
                  route: bool = True,
                  cache: bool = True,
                  compress: bool = True,
-                 timeout: int = 120):
+                 timeout: int = 120,
+                 max_cost_per_request: float | None = None,
+                 max_cost_per_day: float | None = None,
+                 max_cost_per_hour: float | None = None,
+                 on_budget_exceeded=None):
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
         self.base_url = base_url.rstrip("/")
         self.proxy_url = proxy_url.rstrip("/")
@@ -307,11 +447,22 @@ class TokenSaver:
         self.timeout = timeout
 
         self.cache = MemoryCache()
+        self.budget = BudgetGuard(
+            max_cost_per_request=max_cost_per_request,
+            max_cost_per_day=max_cost_per_day,
+            max_cost_per_hour=max_cost_per_hour,
+        )
+        self.on_budget_exceeded = on_budget_exceeded
         self._savings = Savings()
 
     @property
     def savings(self) -> Savings:
         return self._savings
+
+    @property
+    def budget_status(self) -> dict:
+        """当前预算状态"""
+        return self.budget.status().to_dict()
 
     def create(self, **params) -> Response:
         if self.local:
@@ -320,6 +471,25 @@ class TokenSaver:
 
     # ---------- 托管模式 ----------
     def _hosted_create(self, params: dict) -> Response:
+        # 预算熔断（请求前估算）
+        messages = list(params.get("messages") or [])
+        requested = params.get("model") or "gpt-4o-mini"
+        est_in = estimate_tokens(" ".join(
+            str(m.get("content") or "") for m in messages))
+        est_out = max(100, int(est_in * 0.5))
+        est_model = requested
+        if self.route:
+            est_model, _ = route_model(messages, requested, True)
+        try:
+            self.budget.check(calc_cost(est_model, est_in, est_out))
+        except BudgetExceededError as e:
+            if self.on_budget_exceeded:
+                try:
+                    self.on_budget_exceeded(e)
+                except Exception:
+                    pass
+            raise
+
         body = dict(params)
         body["base_url"] = f"{self.base_url}/chat/completions"
 
@@ -349,6 +519,8 @@ class TokenSaver:
                 if k.lower() == name.lower():
                     return v
             return default
+
+        self.budget.record(float(h("X-TS-Cost-Usd")))
 
         billing = Billing(
             model=h("X-TS-Model", params.get("model", "")),
@@ -396,6 +568,21 @@ class TokenSaver:
             else:
                 out_messages.append(m)
 
+        # 预算熔断（调用 provider 前）
+        est_in = estimate_tokens(" ".join(
+            str(m.get("content") or "") for m in out_messages))
+        est_out = max(100, int(est_in * 0.5))
+        est_cost = calc_cost(model, est_in, est_out)
+        try:
+            self.budget.check(est_cost)
+        except BudgetExceededError as e:
+            if self.on_budget_exceeded:
+                try:
+                    self.on_budget_exceeded(e)
+                except Exception:
+                    pass
+            raise
+
         # 调 provider
         payload = dict(params)
         payload["model"] = model
@@ -438,6 +625,7 @@ class TokenSaver:
         self._savings.tokensSaved += tokens_saved
         self._savings.costActual += actual
         self._savings.costBaseline += baseline
+        self.budget.record(actual)
 
         if self.cache_on:
             self.cache.set(model, messages, {"raw": raw, "content": out_text})
@@ -563,6 +751,112 @@ def _selftest() -> int:
             {"role": "user", "content": "What is Python?"}])
         t("全关保持原模型", r3.billing.model == "gpt-4o-mini")
         t("全关无节省", r3.billing.savedUsd == 0, str(r3.billing.savedUsd))
+    finally:
+        urllib.request.urlopen = orig
+
+    print("\n[7] 成本熔断")
+
+    # 单次上限
+    g = BudgetGuard(max_cost_per_request=1.0)
+    t("单次未超限通过", g.check(0.5) is True)
+    threw = False
+    try:
+        g.check(5.0)
+    except BudgetExceededError as e:
+        threw = e.limit_type == "per-request"
+    t("单次超限抛错", threw)
+
+    # 日累计
+    g = BudgetGuard(max_cost_per_day=10.0)
+    g.record(9.0)
+    t("日累计未超限通过", g.check(0.5) is True)
+    threw = False
+    try:
+        g.check(2.0)
+    except BudgetExceededError as e:
+        threw = e.limit_type == "daily"
+    t("日累计超限抛错", threw)
+    t("记录被拒次数", g.status().blocked == 1, str(g.status().blocked))
+    t("记录被救回金额", g.status().saved_by_ceiling > 0)
+
+    # 小时
+    g = BudgetGuard(max_cost_per_hour=5.0)
+    g.record(4.5)
+    threw = False
+    try:
+        g.check(1.0)
+    except BudgetExceededError as e:
+        threw = e.limit_type == "hourly"
+    t("小时超限抛错", threw)
+
+    # status
+    g = BudgetGuard(max_cost_per_day=10.0)
+    t("日剩余额度", abs(g.status().day_remaining - 10.0) < 1e-9)
+    t("无限额时 remaining=None",
+      BudgetGuard().status().day_remaining is None)
+
+    # 端到端
+    orig = urllib.request.urlopen
+    calls = {"n": 0}
+
+    class FakeResp:
+        def __init__(self, payload):
+            self._p = json.dumps(payload).encode()
+        def read(self):
+            return self._p
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(req, timeout=None):
+        calls["n"] += 1
+        body = json.loads(req.data.decode())
+        return FakeResp({
+            "id": "chatcmpl-budget",
+            "model": body.get("model"),
+            "choices": [{"message": {"role": "assistant", "content": "ok"}}],
+        })
+
+    urllib.request.urlopen = fake_urlopen
+    try:
+        # 极小单次上限 → 立即熔断
+        tight = TokenSaver(api_key="sk-test", local=True,
+                           max_cost_per_request=0.000001)
+        captured = {"err": None}
+        tight.on_budget_exceeded = lambda e: captured.__setitem__("err", e)
+        blocked = False
+        try:
+            tight.create(model="gpt-4", messages=[
+                {"role": "user", "content": "x" * 5000}])
+        except BudgetExceededError:
+            blocked = True
+        t("客户端触发单次熔断", blocked)
+        t("回调被触发", captured["err"] is not None)
+        t("熔断时不调用 provider", calls["n"] == 0, str(calls["n"]))
+
+        # 累计后熔断
+        calls["n"] = 0
+        accum = TokenSaver(api_key="sk-test", local=True,
+                           max_cost_per_day=0.02,
+                           route=False, cache=False, compress=False)
+        accum_blocked = False
+        iters = 0
+        try:
+            for i in range(50):
+                iters = i
+                accum.create(model="gpt-4", messages=[
+                    {"role": "user", "content": f"q{i} " + "z" * 300}])
+        except BudgetExceededError:
+            accum_blocked = True
+        t("累计后熔断", accum_blocked)
+        t("熔断前已完成多次请求", iters >= 2, f"iters={iters}")
+        t("熔断前确实花过钱", accum.budget_status["spentDay"] > 0,
+          str(accum.budget_status["spentDay"]))
+        t("花费不超上限", accum.budget_status["spentDay"] <= 0.02 + 1e-9,
+          str(accum.budget_status["spentDay"]))
+        t("被拦金额 > 0", accum.budget_status["savedByCeiling"] > 0,
+          str(accum.budget_status["savedByCeiling"]))
     finally:
         urllib.request.urlopen = orig
 
