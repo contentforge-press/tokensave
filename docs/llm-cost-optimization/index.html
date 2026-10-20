@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LLM cost optimization you can verify yourself — tokensave</title>
+<meta name="description" content="Most cost tools ask you to trust a dashboard. This one puts the number in the response header.">
+<link rel="canonical" href="https://contentforge-press.github.io/tokensave/llm-cost-optimization">
+<meta property="og:type" content="article">
+<meta property="og:title" content="LLM cost optimization you can verify yourself">
+<meta property="og:description" content="Most cost tools ask you to trust a dashboard. This one puts the number in the response header.">
+<meta property="og:url" content="https://contentforge-press.github.io/tokensave/llm-cost-optimization">
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "TechArticle", "headline": "LLM cost optimization you can verify yourself", "description": "Most cost tools ask you to trust a dashboard. This one puts the number in the response header.", "url": "https://contentforge-press.github.io/tokensave/llm-cost-optimization", "author": {"@type": "Organization", "name": "tokensave"}}
+</script>
+<style>
+:root{--bg:#000;--surface:#0a0a0a;--line:#1c1c1c;--ink:#fafafa;--mut:#6b7280;--ok:#4ade80;--acc:#60a5fa}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font:15px/1.7 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--bg);color:var(--ink)}
+.wrap{max-width:760px;margin:0 auto;padding:56px 24px 100px}
+.pill{display:inline-block;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--acc);border:1px solid #14243b;background:#06111c;padding:4px 10px;border-radius:4px;margin-bottom:20px}
+h1{font-size:clamp(26px,4.5vw,40px);line-height:1.12;letter-spacing:-.03em;margin-bottom:20px}
+h2{font-size:20px;margin:40px 0 14px;letter-spacing:-.02em}
+.lede{font-size:16px;color:#9ca3af;margin-bottom:32px}
+p{color:#9ca3af;margin-bottom:16px}
+b{color:var(--ink)}
+pre{background:#0a0a0a;border:1px solid var(--line);border-radius:9px;padding:18px;overflow-x:auto;font-size:12.5px;line-height:1.8;margin:20px 0;color:#d4d4d4}
+code{color:#c084fc}
+.cmp{width:100%;border-collapse:collapse;margin:22px 0;font-size:13.5px}
+.cmp th{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--mut)}
+.cmp td{padding:12px;border-bottom:1px solid #141414;color:#9ca3af;vertical-align:top}
+.yes{color:var(--ok)}
+a{color:var(--acc);text-decoration:none}
+a:hover{text-decoration:underline}
+nav{border-bottom:1px solid var(--line);padding:14px 24px}
+nav a{color:var(--mut);font-size:13px}
+</style>
+</head>
+<body>
+<nav><a href="./">← tokensave</a></nav>
+<div class="wrap">
+<p class="pill">guide · 5 min</p>
+<h1>LLM cost optimization you can verify yourself</h1>
+<p class="lede">Every cost-optimization tool claims 60–80% savings. Almost none let you check the arithmetic. That is the actual problem with the category.</p>
+<h2>Three places the money goes</h2>
+<table class="cmp">
+<tr><th>Leak</th><th>Mechanism</th><th>Recovery</th></tr>
+<tr><td>Repeated questions</td><td>Same question reworded, billed in full</td><td class="yes">up to −40%</td></tr>
+<tr><td>Filler tokens</td><td>"please", "I would like you to", duplicated sentences</td><td class="yes">−10 to −25%</td></tr>
+<tr><td>Wrong-sized model</td><td><code>gpt-4</code> answering "what is Python"</td><td class="yes">−30 to −60%</td></tr>
+</table>
+<h2>Make the claim falsifiable</h2>
+<p>The fix is not a better algorithm — it is putting the number where the customer can check it:</p>
+<pre><code>{
+  model: "gpt-4o-mini",
+  costUsd: 0.0000212,      // what you paid
+  baselineUsd: 0.00243,    // what you would have paid
+  savedUsd: 0.0024088,     // the difference
+  route: "routed down: 3 tokens, 1 simple patterns"
+}</code></pre>
+<p>Now the claim is auditable. If it is wrong, you will see it immediately.</p>
+<h2>Limits you should assume</h2>
+<ul style="color:#9ca3af;line-height:2;font-size:14.5px">
+<li><b>Normalization-based cache</b>, not embeddings: catches reworded repeats with the same vocabulary, not true paraphrases.</li>
+<li><b>Heuristic routing</b>: a short-but-hard question can be routed down. Disable when precision matters.</li>
+<li><b>Regex compression</b>: strips filler, does not summarize. Check <code>tokensSaved</code>.</li>
+</ul>
+<p>These are documented rather than hidden, because a savings tool you cannot verify is a marketing page with an API.</p>
+<p style="margin-top:36px"><a href="./">← back</a></p>
+</div>
+</body>
+</html>
