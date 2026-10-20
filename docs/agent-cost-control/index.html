@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Agent cost control: why monitoring is not enough — tokensave</title>
+<meta name="description" content="Dashboards tell you what you spent. A ceiling tells the agent no.">
+<link rel="canonical" href="https://contentforge-press.github.io/tokensave/agent-cost-control">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Agent cost control: why monitoring is not enough">
+<meta property="og:description" content="Dashboards tell you what you spent. A ceiling tells the agent no.">
+<meta property="og:url" content="https://contentforge-press.github.io/tokensave/agent-cost-control">
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "TechArticle", "headline": "Agent cost control: why monitoring is not enough", "description": "Dashboards tell you what you spent. A ceiling tells the agent no.", "url": "https://contentforge-press.github.io/tokensave/agent-cost-control", "author": {"@type": "Organization", "name": "tokensave"}}
+</script>
+<style>
+:root{--bg:#000;--surface:#0a0a0a;--line:#1c1c1c;--ink:#fafafa;--mut:#6b7280;--ok:#4ade80;--acc:#60a5fa}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font:15px/1.7 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--bg);color:var(--ink)}
+.wrap{max-width:760px;margin:0 auto;padding:56px 24px 100px}
+.pill{display:inline-block;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--acc);border:1px solid #14243b;background:#06111c;padding:4px 10px;border-radius:4px;margin-bottom:20px}
+h1{font-size:clamp(26px,4.5vw,40px);line-height:1.12;letter-spacing:-.03em;margin-bottom:20px}
+h2{font-size:20px;margin:40px 0 14px;letter-spacing:-.02em}
+.lede{font-size:16px;color:#9ca3af;margin-bottom:32px}
+p{color:#9ca3af;margin-bottom:16px}
+b{color:var(--ink)}
+pre{background:#0a0a0a;border:1px solid var(--line);border-radius:9px;padding:18px;overflow-x:auto;font-size:12.5px;line-height:1.8;margin:20px 0;color:#d4d4d4}
+code{color:#c084fc}
+.cmp{width:100%;border-collapse:collapse;margin:22px 0;font-size:13.5px}
+.cmp th{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--mut)}
+.cmp td{padding:12px;border-bottom:1px solid #141414;color:#9ca3af;vertical-align:top}
+.yes{color:var(--ok)}
+a{color:var(--acc);text-decoration:none}
+a:hover{text-decoration:underline}
+nav{border-bottom:1px solid var(--line);padding:14px 24px}
+nav a{color:var(--mut);font-size:13px}
+</style>
+</head>
+<body>
+<nav><a href="./">← tokensave</a></nav>
+<div class="wrap">
+<p class="pill">guide · 3 min</p>
+<h1>Agent cost control: why monitoring is not enough</h1>
+<p class="lede">Every observability platform will show you a beautiful chart of yesterday's spend. None of them will stop today's loop.</p>
+<h2>The gap between observing and enforcing</h2>
+<p>Observability answers <em>what happened</em>. Enforcement answers <em>may this happen</em>. For cost, only the second protects you — and most teams ship only the first.</p>
+<p>The failure mode is specific: an agent retries a 400 because the handler says "retry on failure" and 400 is technically a failure. It retries for hours. Each retry costs money. The chart is gorgeous and useless.</p>
+<h2>What enforcement looks like</h2>
+<ul style="color:#9ca3af;line-height:2;font-size:14.5px">
+<li>Cost is estimated <b>before</b> the call</li>
+<li>If it would cross a limit, the call is refused</li>
+<li>The refusal is a normal catchable error — the agent logs it and stops gracefully</li>
+<li>The amount prevented is recorded</li>
+</ul>
+<h2>Do you have to give up savings?</h2>
+<p>No. Enforcement and optimization are orthogonal. Ceilings bound the worst case; caching, compression and routing lower the average.</p>
+<pre><code>const client = new TokenSaver({
+  apiKey: "...",
+  maxCostPerDay: 25,   // worst case bounded
+  // caching + compression + routing on by default
+});</code></pre>
+<h2>The honest caveat</h2>
+<p>Ceilings use estimated cost. A request that looks cheap and turns out expensive can slip past a per-request check — the hourly and daily limits catch the aggregate. Exactness requires the provider's usage data, which only arrives afterwards.</p>
+<p style="margin-top:36px"><a href="./">← back</a></p>
+</div>
+</body>
+</html>
