@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name="tokensave",
-    version="1.0.0",
+    version="1.1.1",
     description="Cut your LLM bill 60-80%. Drop-in client with semantic cache, prompt compression and model routing.",
     long_description=open("README.md", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
